@@ -1,6 +1,6 @@
 """
-Multi-Modal RAG: Interactive Web Application
-Gradio interface optimized for Hugging Face Spaces
+Multi-Modal RAG: Standalone Demo Version
+All code in one file for Hugging Face Spaces compatibility
 
 Author: Rahul Vuppalapati
 GitHub: https://github.com/vraul92
@@ -13,218 +13,262 @@ import numpy as np
 from PIL import Image
 import io
 import base64
+import fitz  # PyMuPDF
+import torch
+import torch.nn.functional as F
+from typing import List, Dict, Tuple, Optional, Union
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Mock implementations for demo (no heavy dependencies)
+print("🔄 Loading Multi-Modal RAG Demo...")
 
-# Global instances
-RAG_SYSTEM = None
-EMBEDDING_ENGINE = None
-VECTOR_STORE = None
+class SimpleDocumentProcessor:
+    """Simple PDF processor for demo."""
+    
+    def process_pdf(self, pdf_path: str) -> Dict:
+        """Extract text and images from PDF."""
+        doc = fitz.open(pdf_path)
+        pages = []
+        
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text()
+            
+            # Get page as image
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            
+            pages.append({
+                'page_num': page_num,
+                'text': text,
+                'page_image': img
+            })
+        
+        doc.close()
+        return {'pages': pages, 'metadata': {'total_pages': len(pages)}}
+    
+    def create_chunks(self, document: Dict, chunk_size: int = 1000) -> List[Dict]:
+        """Create chunks from document."""
+        chunks = []
+        for page in document['pages']:
+            text = page['text']
+            # Simple chunking
+            for i in range(0, len(text), chunk_size):
+                chunk_text = text[i:i+chunk_size]
+                if chunk_text.strip():
+                    chunks.append({
+                        'text': chunk_text,
+                        'page_num': page['page_num'],
+                        'chunk_type': 'text'
+                    })
+            
+            # Add image reference
+            chunks.append({
+                'text': f"[Image: Page {page['page_num']} contains visual content]",
+                'page_num': page['page_num'],
+                'chunk_type': 'image'
+            })
+        
+        return chunks
 
 
-def initialize_system():
-    """Initialize RAG components (lazy loading)."""
-    global RAG_SYSTEM, EMBEDDING_ENGINE, VECTOR_STORE
+class SimpleRAGSystem:
+    """Simple RAG system for demo."""
     
-    if RAG_SYSTEM is not None:
-        return RAG_SYSTEM
+    def __init__(self):
+        self.chunks = []
+        self.document_name = ""
     
-    print("🔄 Initializing Multi-Modal RAG...")
+    def index_document(self, file_path: str) -> bool:
+        """Index a PDF document."""
+        try:
+            processor = SimpleDocumentProcessor()
+            doc = processor.process_pdf(file_path)
+            self.chunks = processor.create_chunks(doc)
+            self.document_name = os.path.basename(file_path)
+            print(f"✅ Indexed {len(self.chunks)} chunks from {self.document_name}")
+            return True
+        except Exception as e:
+            print(f"❌ Error indexing: {e}")
+            return False
     
-    from embedding_engine import MultiModalEmbedding, VectorStore
-    from rag_pipeline import MultiModalRetriever, AnswerGenerator, MultiModalRAG
-    
-    # Initialize components
-    EMBEDDING_ENGINE = MultiModalEmbedding()
-    VECTOR_STORE = VectorStore(dimension=512)
-    retriever = MultiModalRetriever(VECTOR_STORE, EMBEDDING_ENGINE)
-    
-    # Use mock generator for HF Spaces (no API key needed)
-    generator = AnswerGenerator(model="mock")
-    
-    RAG_SYSTEM = MultiModalRAG(
-        EMBEDDING_ENGINE,
-        VECTOR_STORE,
-        retriever,
-        generator
-    )
-    
-    print("✅ System ready!")
-    return RAG_SYSTEM
+    def query(self, question: str, k: int = 3) -> Dict:
+        """Query the document."""
+        if not self.chunks:
+            return {
+                'answer': "Please upload a document first!",
+                'sources': []
+            }
+        
+        # Simple keyword matching for demo
+        question_lower = question.lower()
+        relevant_chunks = []
+        
+        for chunk in self.chunks:
+            score = 0
+            chunk_text_lower = chunk['text'].lower()
+            
+            # Check for keyword overlap
+            question_words = set(question_lower.split())
+            chunk_words = set(chunk_text_lower.split())
+            overlap = len(question_words & chunk_words)
+            score = overlap
+            
+            if score > 0 or len(relevant_chunks) < k:
+                relevant_chunks.append({
+                    'chunk': chunk,
+                    'score': score
+                })
+        
+        # Sort by score and take top k
+        relevant_chunks.sort(key=lambda x: x['score'], reverse=True)
+        top_chunks = relevant_chunks[:k]
+        
+        # Generate demo response
+        sources = []
+        for rc in top_chunks:
+            meta = rc['chunk']
+            sources.append(f"Page {meta['page_num'] + 1}")
+        
+        # Create contextual response
+        if top_chunks:
+            preview = top_chunks[0]['chunk']['text'][:200] if top_chunks[0]['chunk']['text'] else "Visual content"
+            answer = f"""Based on your document **{self.document_name}**, here's what I found:
+
+**Regarding your question:** *{question}*
+
+From the retrieved content (Pages: {', '.join(set(sources))}):
+
+• The document contains relevant information about this topic
+• Key sections discuss related concepts in {len(set(sources))} page(s)
+• Preview from most relevant section:
+  \"{preview}...\"
+
+---
+
+**Note:** This is a **demo version** with simplified retrieval. For production use with:
+- ✨ Semantic search with embeddings
+- 🖼️  Visual understanding of charts/diagrams  
+- 🧠 GPT-4/Claude integration
+
+Deploy with full dependencies (see GitHub for complete version)."""
+        else:
+            answer = f"I couldn't find specific information about '{question}' in the document. Try asking about topics mentioned in the text."
+        
+        return {
+            'answer': answer,
+            'sources': list(set(sources)),
+            'chunks_found': len(top_chunks)
+        }
+
+
+# Global RAG instance
+RAG = SimpleRAGSystem()
 
 
 def process_document(file_obj):
-    """
-    Process uploaded PDF and index it.
-    
-    Args:
-        file_obj: Gradio file object
-        
-    Returns:
-        Status message and document info
-    """
+    """Process uploaded PDF."""
     if file_obj is None:
         return "❌ No file uploaded", None
     
     try:
-        rag = initialize_system()
-        
-        # Get file path
         file_path = file_obj.name if hasattr(file_obj, 'name') else file_obj
-        
-        print(f"📄 Processing: {os.path.basename(file_path)}")
-        
-        # Index document
-        success = rag.index_document(file_path)
+        success = RAG.index_document(file_path)
         
         if success:
-            num_chunks = len(VECTOR_STORE.metadata)
             return (
-                f"✅ Document indexed successfully!\n"
-                f"📊 Extracted {num_chunks} chunks (text + images)",
+                f"✅ Document processed successfully!\n"
+                f"📄 {RAG.document_name}\n"
+                f"📊 {len(RAG.chunks)} chunks extracted",
                 file_path
             )
         else:
             return "❌ Failed to process document", None
             
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return f"❌ Error: {str(e)}", None
 
 
 def chat_with_document(message, history, document_state):
-    """
-    Handle chat interaction.
-    
-    Args:
-        message: User message
-        history: Chat history
-        document_state: Currently loaded document
-        
-    Returns:
-        Updated history and visible elements
-    """
+    """Handle chat."""
     if document_state is None:
         history.append((message, "❌ Please upload a document first!"))
-        return history, "Please upload a PDF document to start chatting."
+        return history, "Upload a PDF to start."
     
     if not message.strip():
-        return history, "Type a question about the document."
+        return history, "Type a question."
     
     try:
-        rag = initialize_system()
-        
-        # Query
-        result = rag.query(message, k=5)
-        
-        # Format answer
+        result = RAG.query(message)
         answer = result['answer']
         
-        # Add citations info
-        citations = []
-        for chunk in result.get('retrieved_chunks', []):
-            meta = chunk['metadata']
-            if meta.get('chunk_type') == 'image':
-                citations.append(f"📷 Page {meta.get('page_num', '?')}")
-            else:
-                citations.append(f"📄 Page {meta.get('page_num', '?')}")
-        
-        if citations:
-            answer += f"\n\n**Sources:** {', '.join(set(citations))}"
+        if result['sources']:
+            answer += f"\n\n**📍 Sources:** {', '.join(result['sources'])}"
         
         history.append((message, answer))
-        
-        # Return with thinking indicator cleared
-        return history, "Ask another question or upload a different document."
+        return history, "Ready for next question."
         
     except Exception as e:
-        error_msg = f"❌ Error processing query: {str(e)}"
+        import traceback
+        traceback.print_exc()
+        error_msg = f"❌ Error: {str(e)}"
         history.append((message, error_msg))
         return history, error_msg
 
 
 def clear_chat():
-    """Clear chat history."""
-    return [], "Chat cleared. Ready for new conversation."
+    """Clear chat."""
+    return [], "Chat cleared. Upload a document to start."
 
 
-# CSS for better styling
+# CSS
 custom_css = """
-.gradio-container {
-    max-width: 1200px !important;
-}
-.chatbot {
-    height: 500px;
-}
-.footer {
-    text-align: center;
-    margin-top: 20px;
-    color: #666;
-    font-size: 0.9em;
-}
+.gradio-container { max-width: 1200px !important; }
+.chatbot { height: 500px; }
+.footer { text-align: center; margin-top: 20px; color: #666; font-size: 0.9em; }
 """
 
-# Build Gradio interface
-with gr.Blocks(
-    title="Multi-Modal RAG: Documents That See"
-) as demo:
+# Build UI
+with gr.Blocks(title="Multi-Modal RAG Demo") as demo:
     
     gr.Markdown("""
-    # 🎯 Multi-Modal RAG
-    ### Chat with documents containing text, charts, and images
+    # 🎯 Multi-Modal RAG Demo
+    ### Chat with PDF documents (Demo Version)
     
-    **Upload a PDF** → **Ask questions** about text AND visuals → **Get cited answers**
+    **Upload a PDF** → **Ask questions** → **Get answers with page citations**
+    
+    🌐 **Live Demo** | 📁 [GitHub](https://github.com/vraul92/multimodal-rag)
     """)
     
-    # State to track document
     document_state = gr.State(None)
     
     with gr.Row():
-        # Left column - Document upload
         with gr.Column(scale=1):
             gr.Markdown("### 📄 Upload Document")
             
-            file_upload = gr.File(
-                label="Upload PDF",
-                file_types=[".pdf"],
-                type="filepath"
-            )
-            
+            file_upload = gr.File(label="Upload PDF", file_types=[".pdf"], type="filepath")
             upload_btn = gr.Button("🔍 Process Document", variant="primary")
             
             status_text = gr.Textbox(
                 label="Status",
-                value="Upload a PDF to get started",
+                value="Upload a PDF to start",
                 interactive=False,
                 lines=3
             )
             
             gr.Markdown("""
             #### 💡 Example Questions:
-            - "What does Figure 3 show?"
-            - "Explain the trend in the bar chart"
-            - "Summarize the key findings"
-            - "What architecture is described?"
-            """)
-            
-            gr.Markdown("""
-            #### ℹ️ About:
-            - ✅ Understands text + charts + diagrams
-            - ✅ Cites sources with page numbers
-            - ✅ Zero setup - runs in browser
+            - "What is this document about?"
+            - "Summarize the main points"
+            - "What does Figure 1 show?"
+            - "Explain the methodology"
             """)
         
-        # Right column - Chat
         with gr.Column(scale=2):
-            gr.Markdown("### 💬 Chat with Document")
+            gr.Markdown("### 💬 Chat")
             
-            chatbot = gr.Chatbot(
-                label="Conversation",
-                height=500
-            )
+            chatbot = gr.Chatbot(label="Conversation", height=500)
             
             with gr.Row():
                 msg_input = gr.Textbox(
@@ -235,83 +279,33 @@ with gr.Blocks(
                 submit_btn = gr.Button("Send", variant="primary", scale=1)
             
             clear_btn = gr.Button("🗑️ Clear Chat")
-            
-            info_text = gr.Textbox(
-                value="Upload a PDF document to start chatting.",
-                interactive=False,
-                show_label=False
-            )
     
-    # Footer
     gr.Markdown("""
     ---
-    
     <div class="footer">
-    
-    **Multi-Modal RAG** by <a href="https://github.com/vraul92" target="_blank">Rahul Vuppalapati</a> | 
-    <a href="https://github.com/vraul92/multimodal-rag" target="_blank">GitHub</a> | 
-    <a href="https://linkedin.com/in/vrc7" target="_blank">LinkedIn</a>
-    
-    Built with ❤️ using Gradio + PyTorch + CLIP
-    
+    <b>Multi-Modal RAG Demo</b> by <a href="https://github.com/vraul92">Rahul Vuppalapati</a> | 
+    <a href="https://linkedin.com/in/vrc7">LinkedIn</a>
     </div>
     """)
     
-    # Event handlers
-    upload_btn.click(
-        fn=process_document,
-        inputs=[file_upload],
-        outputs=[status_text, document_state]
-    )
+    # Events
+    upload_btn.click(fn=process_document, inputs=[file_upload], outputs=[status_text, document_state])
+    file_upload.change(fn=process_document, inputs=[file_upload], outputs=[status_text, document_state])
     
-    # Also trigger on file upload directly
-    file_upload.change(
-        fn=process_document,
-        inputs=[file_upload],
-        outputs=[status_text, document_state]
-    )
-    
-    # Chat submission
-    submit_btn.click(
-        fn=chat_with_document,
-        inputs=[msg_input, chatbot, document_state],
-        outputs=[chatbot, info_text]
-    ).then(
-        fn=lambda: "",
-        outputs=[msg_input]
-    )
-    
-    # Enter key in message box
-    msg_input.submit(
-        fn=chat_with_document,
-        inputs=[msg_input, chatbot, document_state],
-        outputs=[chatbot, info_text]
-    ).then(
-        fn=lambda: "",
-        outputs=[msg_input]
-    )
-    
-    # Clear chat
-    clear_btn.click(
-        fn=clear_chat,
-        outputs=[chatbot, info_text]
-    )
+    submit_btn.click(fn=chat_with_document, inputs=[msg_input, chatbot, document_state], outputs=[chatbot, status_text])
+    msg_input.submit(fn=chat_with_document, inputs=[msg_input, chatbot, document_state], outputs=[chatbot, status_text])
+    clear_btn.click(fn=clear_chat, outputs=[chatbot, status_text])
 
 
 if __name__ == "__main__":
-    # Get port from environment (HF Spaces sets this)
     port = int(os.environ.get("PORT", 7860))
-    
-    print("🚀 Starting Multi-Modal RAG...")
-    print(f"📱 App will be available at: http://localhost:{port}")
-    print("")
+    print("🚀 Starting Multi-Modal RAG Demo...")
     
     demo.launch(
         server_name="0.0.0.0",
         server_port=port,
         share=False,
         show_error=True,
-        quiet=False,
         theme=gr.themes.Soft(),
         css=custom_css
     )
