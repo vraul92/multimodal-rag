@@ -86,6 +86,9 @@ class AnswerGenerator:
         elif "claude" in model.lower():
             self.provider = "anthropic"
             self.client = anthropic.Anthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
+        elif "mock" in model.lower():
+            self.provider = "mock"
+            self.client = None
         else:
             raise ValueError(f"Unsupported model: {model}")
     
@@ -148,8 +151,10 @@ Answer:"""
         # Generate based on provider
         if self.provider == "openai":
             return self._generate_openai(prompt, images, max_tokens)
-        else:
+        elif self.provider == "anthropic":
             return self._generate_anthropic(prompt, images, max_tokens)
+        else:
+            return self._generate_mock(prompt, images, max_tokens)
     
     def _generate_openai(
         self,
@@ -218,6 +223,42 @@ Answer:"""
                 'model': self.model,
                 'note': f'Using fallback (API error: {str(e)})'
             }
+    
+    def _generate_mock(
+        self,
+        prompt: str,
+        images: List,
+        max_tokens: int
+    ) -> Dict:
+        """Generate mock response for demo (no API key needed)."""
+        # Extract query from prompt
+        query_start = prompt.find("Question:") + 9
+        query_end = prompt.find("Context from document:")
+        query = prompt[query_start:query_end].strip() if query_start > 8 and query_end > 0 else "your question"
+        
+        # Generate contextual mock response
+        answer = f"""Based on the uploaded document, I found relevant information about: **{query}**
+
+From the text content retrieved:
+• The document discusses several aspects related to this topic in the retrieved sections [Excerpt 1, Excerpt 2]
+• Key findings include related concepts from Pages 1-3
+
+**Note:** This is a demo response. For full functionality with real LLM responses, please add an OpenAI or Anthropic API key.
+
+To enable full responses:
+1. Get an API key from OpenAI (https://platform.openai.com) or Anthropic (https://console.anthropic.com)
+2. Add it as a secret in your Hugging Face Space settings
+3. Restart the Space"""
+        
+        return {
+            'answer': answer,
+            'citations': [
+                {'type': 'text', 'page': 1},
+                {'type': 'text', 'page': 2}
+            ],
+            'model': 'mock-demo',
+            'note': 'Demo mode - Add OpenAI/Anthropic API key for real LLM responses'
+        }
 
 
 class MultiModalRAG:
