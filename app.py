@@ -169,9 +169,7 @@ custom_css = """
 
 # Build Gradio interface
 with gr.Blocks(
-    title="Multi-Modal RAG: Documents That See",
-    theme=gr.themes.Soft(),
-    css=custom_css
+    title="Multi-Modal RAG: Documents That See"
 ) as demo:
     
     gr.Markdown("""
@@ -225,8 +223,7 @@ with gr.Blocks(
             
             chatbot = gr.Chatbot(
                 label="Conversation",
-                height=500,
-                bubble_full_width=False
+                height=500
             )
             
             with gr.Row():
@@ -314,5 +311,7 @@ if __name__ == "__main__":
         server_port=port,
         share=False,
         show_error=True,
-        quiet=False
+        quiet=False,
+        theme=gr.themes.Soft(),
+        css=custom_css
     )
