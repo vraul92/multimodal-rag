@@ -190,8 +190,13 @@ def process_document(file_obj):
 
 def chat_with_document(message, history, document_state):
     """Handle chat."""
+    # Gradio 6.0 format: list of {"role": "user"/"assistant", "content": "..."}
+    if history is None:
+        history = []
+    
     if document_state is None:
-        history.append((message, "❌ Please upload a document first!"))
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": "❌ Please upload a document first!"})
         return history, "Upload a PDF to start."
     
     if not message.strip():
@@ -204,14 +209,17 @@ def chat_with_document(message, history, document_state):
         if result['sources']:
             answer += f"\n\n**📍 Sources:** {', '.join(result['sources'])}"
         
-        history.append((message, answer))
+        # Add to history in Gradio 6.0 format
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": answer})
         return history, "Ready for next question."
         
     except Exception as e:
         import traceback
         traceback.print_exc()
         error_msg = f"❌ Error: {str(e)}"
-        history.append((message, error_msg))
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": error_msg})
         return history, error_msg
 
 
