@@ -8,7 +8,7 @@ Author: Rahul Vuppalapati
 import torch
 import torch.nn.functional as F
 import numpy as np
-from typing import List, Union, Optional
+from typing import List, Dict, Union, Optional
 from sentence_transformers import SentenceTransformer
 import clip
 from PIL import Image
