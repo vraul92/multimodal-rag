@@ -14,8 +14,6 @@ from PIL import Image
 import io
 import base64
 import fitz  # PyMuPDF
-import torch
-import torch.nn.functional as F
 from typing import List, Dict, Tuple, Optional, Union
 
 # Mock implementations for demo (no heavy dependencies)
